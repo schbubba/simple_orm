@@ -1,13 +1,17 @@
 from abc import abstractmethod
 import os
+import hashlib
 import aiosqlite
 from contextlib import asynccontextmanager
 
 from .entity_meta import EntityMeta
 from .foreign_key import ForeignKey
+from .schema_metadata import SchemaMetadata
 
+from typing import TYPE_CHECKING
 
-from simple_orm import get_column_name, reverse_column_name
+if TYPE_CHECKING:
+    from simple_orm import get_column_name, reverse_column_name
 
 class db_context:
     
@@ -43,15 +47,60 @@ class db_context:
             await conn.close()
 
     async def sync_schema(self):
-        for cls in EntityMeta.registry.values():
-            print(f"SYNCING: {cls.__name__}")
-            await cls.sync_schema()
+        """Sync schema for all entities and record metadata."""
+        async with self.get_connection() as conn:
+            # Ensure metadata tables exist first
+            await SchemaMetadata.ensure_metadata_tables(conn)
+            
+            # Sync each entity
+            for cls in EntityMeta.registry.values():
+                print(f"SYNCING: {cls.__name__}")
+                await cls.sync_schema()
+                
+                # Record metadata for this entity
+                await SchemaMetadata.record_entity_metadata(conn, cls)
+            
+            # Calculate and record schema version
+            entities_hash = self._calculate_entities_hash()
+            entity_count = len(EntityMeta.registry)
+            await SchemaMetadata.record_schema_version(conn, entities_hash, entity_count)
+            
+            print(f"Schema synced: {entity_count} entities")
+        
         await self.seed_data()
+    
+    def _calculate_entities_hash(self) -> str:
+        """Calculate SHA256 hash of all entity definitions."""
+        entity_signatures = []
+        
+        for cls_name in sorted(EntityMeta.registry.keys()):
+            cls = EntityMeta.registry[cls_name]
+            fields = []
+            
+            for field_name in sorted(cls._fields.keys()):
+                field = cls._fields[field_name]
+                field_sig = f"{field_name}:{field.py_type.__name__}:{field.primary_key}:{field.nullable}"
+                fields.append(field_sig)
+            
+            entity_sig = f"{cls_name}:{cls._table_name}:{'|'.join(fields)}"
+            entity_signatures.append(entity_sig)
+        
+        combined = "\n".join(entity_signatures)
+        return hashlib.sha256(combined.encode('utf-8')).hexdigest()
 
     @abstractmethod
     async def seed_data(self):
         raise NotImplementedError()
 
+    async def get_schema_metadata(self) -> dict:
+        """Get all table metadata from the database."""
+        async with self.get_connection() as conn:
+            return await SchemaMetadata.get_all_table_metadata(conn)
+    
+    async def get_schema_versions(self, limit: int = 10):
+        """Get recent schema versions."""
+        async with self.get_connection() as conn:
+            return await SchemaMetadata.get_schema_versions(conn, limit)
 
     async def insert_many(self, entities):
         if not entities:
