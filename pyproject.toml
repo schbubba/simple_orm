@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "simple_orm"
+version = "0.1.0"
+description = "Basic ORM for sqlite"
+authors = [
+  { name="James Hollon", email="james.hollon@gmail.com" }
+]
+readme = "README.md"
+license = { file="LICENSE" }
+requires-python = ">=3.11"
+dependencies = [
+  "inflection",
+  "api_dto@git+https://github.com/schbubba/api_dto.git"
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent"
+]
