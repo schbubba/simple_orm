@@ -10,6 +10,9 @@ class Entity(metaclass=EntityMeta):
     _context = None
 
     def __init__(self, **kwargs):
+        # Storage for pending relationship children before insert
+        self._pending_relationships = {}
+        
         for f in self._fields.values():
             setattr(self, f.name, kwargs.get(f.name, f.default))
 
@@ -21,6 +24,23 @@ class Entity(metaclass=EntityMeta):
             sessions = await Session.query().filter(Session.is_active == True).all()
         """
         return Query(cls)
+    
+    def add_child(self, relationship_name, child):
+        """Add a child entity to a relationship for cascade insert.
+        
+        Args:
+            relationship_name: Name of the relationship attribute (e.g., 'channel_episodes')
+            child: Child entity to add
+            
+        Example:
+            channel = Channel(name="My Channel")
+            episode = ChannelEpisode(name="Episode 1")
+            channel.add_child('channel_episodes', episode)
+            await channel.insert()  # Inserts both channel and episode
+        """
+        if relationship_name not in self._pending_relationships:
+            self._pending_relationships[relationship_name] = []
+        self._pending_relationships[relationship_name].append(child)
 
     @classmethod
     async def get_by_id(cls, id):
@@ -81,8 +101,12 @@ class Entity(metaclass=EntityMeta):
             await conn.execute(sql)
             await conn.commit()
 
-    async def insert(self):
-        """Insert this entity into the database."""
+    async def insert(self, cascade=True):
+        """Insert this entity into the database.
+        
+        Args:
+            cascade: If True, also insert related entities that have been added via add_child()
+        """
         table = self._table_name
         fields = []
         values = []
@@ -129,6 +153,22 @@ class Entity(metaclass=EntityMeta):
             if pk_field and pk_field.py_type == int:
                 self.id = cur.lastrowid
             await conn.commit()
+        
+        # Handle cascade inserts for relationships
+        if cascade and self._pending_relationships:
+            from .relationship import Relationship
+            
+            for relationship_name, children in self._pending_relationships.items():
+                # Get the Relationship descriptor from the class
+                relationship = getattr(type(self), relationship_name, None)
+                
+                if not isinstance(relationship, Relationship):
+                    raise ValueError(f"'{relationship_name}' is not a valid relationship on {type(self).__name__}")
+                
+                # Set the foreign key on each child and insert
+                for child in children:
+                    setattr(child, relationship.foreign_key_attr_name, self.id)
+                    await child.insert(cascade=cascade)
 
     async def update(self):
         """Update this entity in the database."""
