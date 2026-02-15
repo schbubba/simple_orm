@@ -112,13 +112,37 @@ class db_context:
 
         async with self.get_connection() as conn:
             for cls, items in grouped.items():
-                fields = [get_column_name(f.name) for f in cls._fields.values() if not f.primary_key]
+                # Find the primary key field
+                pk_field = None
+                for f in cls._fields.values():
+                    if f.primary_key:
+                        pk_field = f
+                        break
+                
+                # Build field list: skip int PKs, include string PKs
+                fields = []
+                for f in cls._fields.values():
+                    if f.primary_key:
+                        # Skip integer PKs (AUTOINCREMENT handles them)
+                        if f.py_type == int:
+                            continue
+                        # Include string PKs
+                        elif f.py_type == str:
+                            fields.append(get_column_name(f.name))
+                    else:
+                        fields.append(get_column_name(f.name))
 
                 placeholders = ", ".join("?" for _ in fields)
                 sql = f"INSERT INTO {cls._table_name} ({', '.join(fields)}) VALUES ({placeholders})"
 
                 rows = []
                 for obj in items:
+                    # Auto-generate UUID for string PKs if needed
+                    if pk_field and pk_field.py_type == str:
+                        if getattr(obj, pk_field.name) is None:
+                            import uuid
+                            setattr(obj, pk_field.name, str(uuid.uuid4()))
+                    
                     vals = [
                         obj._fields[reverse_column_name(f)].python_to_sql(getattr(obj, reverse_column_name(f)))
                         for f in fields
