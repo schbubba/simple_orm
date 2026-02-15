@@ -10,7 +10,12 @@ class ForeignKey(Field):
             target_column: Column on target (usually "id")
             nullable: Whether FK can be NULL
         """
-        super().__init__(int, nullable=nullable)
+        # Don't call super().__init__ yet - we need to determine the type first
+        # Store parameters for later
+        self._py_type = None  # Will be set in resolve()
+        self.nullable = nullable
+        self.primary_key = False
+        self.default = None
         
         self._target = target
         self.target_column = target_column
@@ -33,6 +38,14 @@ class ForeignKey(Field):
             cls = self._target()
         else:
             raise TypeError("Invalid foreign key target")
+        
+        # Find the target column's field to get its type
+        target_field = cls._fields.get(self.target_column)
+        if not target_field:
+            raise ValueError(f"Target column '{self.target_column}' not found in {cls.__name__}")
+        
+        # Set the FK type to match the target field's type
+        self.py_type = target_field.py_type
         
         self.foreign_key = (cls._table_name, self.target_column)
         
