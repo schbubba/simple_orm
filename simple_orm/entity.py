@@ -3,6 +3,7 @@ from .field import Field
 from .foreign_key import ForeignKey
 from .query import Query
 from .key_words import get_column_name
+import uuid
 
 class Entity(metaclass=EntityMeta):
     id = Field(int, primary_key=True, nullable=False)
@@ -53,7 +54,10 @@ class Entity(metaclass=EntityMeta):
             name = get_column_name(f.name)
             col = f"{name} {f.sql_type()}"
             if f.primary_key:
-                col += " PRIMARY KEY AUTOINCREMENT"
+                col += " PRIMARY KEY"
+                # Only add AUTOINCREMENT for integer primary keys
+                if f.py_type == int:
+                    col += " AUTOINCREMENT"
             if not f.nullable:
                 col += " NOT NULL"
             fields_sql.append(col)
@@ -84,8 +88,28 @@ class Entity(metaclass=EntityMeta):
         values = []
         placeholders = []
         
+        # Find the primary key field
+        pk_field = None
         for f in self._fields.values():
             if f.primary_key:
+                pk_field = f
+                break
+        
+        for f in self._fields.values():
+            if f.primary_key:
+                # For string primary keys, auto-generate UUID if not provided
+                if f.py_type == str:
+                    current_value = getattr(self, f.name)
+                    if current_value is None:
+                        # Auto-generate UUID
+                        setattr(self, f.name, str(uuid.uuid4()))
+                    
+                    name = get_column_name(f.name)
+                    fields.append(name)
+                    val = getattr(self, f.name)
+                    values.append(f.python_to_sql(val))
+                    placeholders.append("?")
+                # For int primary keys, skip (let AUTOINCREMENT handle it)
                 continue
             name = get_column_name(f.name)
             fields.append(name)
@@ -97,7 +121,9 @@ class Entity(metaclass=EntityMeta):
         
         async with self._context.get_connection() as conn:
             cur = await conn.execute(sql, values)
-            self.id = cur.lastrowid
+            # Only set id from lastrowid for integer primary keys
+            if pk_field and pk_field.py_type == int:
+                self.id = cur.lastrowid
             await conn.commit()
 
     async def update(self):
@@ -126,10 +152,29 @@ class Entity(metaclass=EntityMeta):
 
     async def save(self):
         """Insert or update based on whether entity has an id."""
-        if self.id:
-            await self.update()
+        # Check if primary key has a value (works for both int and str)
+        pk_value = getattr(self, 'id', None)
+        
+        # For integer PKs: None or 0 means new entity
+        # For string PKs: None means new entity
+        pk_field = None
+        for f in self._fields.values():
+            if f.primary_key:
+                pk_field = f
+                break
+        
+        if pk_field:
+            if pk_field.py_type == int:
+                is_new = (pk_value is None or pk_value == 0)
+            else:  # string or other types
+                is_new = (pk_value is None)
         else:
+            is_new = True
+        
+        if is_new:
             await self.insert()
+        else:
+            await self.update()
 
     async def delete(self):
         """Delete this entity from the database."""
