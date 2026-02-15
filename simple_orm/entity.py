@@ -97,6 +97,10 @@ class Entity(metaclass=EntityMeta):
         
         for f in self._fields.values():
             if f.primary_key:
+                # For int primary keys, skip (let AUTOINCREMENT handle it)
+                if f.py_type == int:
+                    continue
+                    
                 # For string primary keys, auto-generate UUID if not provided
                 if f.py_type == str:
                     current_value = getattr(self, f.name)
@@ -109,8 +113,8 @@ class Entity(metaclass=EntityMeta):
                     val = getattr(self, f.name)
                     values.append(f.python_to_sql(val))
                     placeholders.append("?")
-                # For int primary keys, skip (let AUTOINCREMENT handle it)
-                continue
+                    continue
+            
             name = get_column_name(f.name)
             fields.append(name)
             val = getattr(self, f.name)
