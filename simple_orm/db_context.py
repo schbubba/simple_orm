@@ -10,9 +10,12 @@ from .schema_metadata import SchemaMetadata
 
 from typing import TYPE_CHECKING
 
+from singleton_decorator import singleton
+
 if TYPE_CHECKING:
     from simple_orm import get_column_name, reverse_column_name
 
+@singleton
 class db_context:
     
     def __init__(self, db_path, sync_schema=False):
