@@ -37,8 +37,12 @@ class db_context:
 
     @asynccontextmanager
     async def get_connection(self):
-        conn = await aiosqlite.connect(self._db_path)
+        conn = await aiosqlite.connect(self._db_path, timeout=30.0)
         try:
+            # Enable WAL mode for better concurrency
+            await conn.execute("PRAGMA journal_mode=WAL")
+            # Set busy timeout to 30 seconds
+            await conn.execute("PRAGMA busy_timeout=30000")
             yield conn
         except:
             await conn.rollback()
