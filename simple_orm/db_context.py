@@ -7,25 +7,11 @@ from contextlib import asynccontextmanager
 from .entity_meta import EntityMeta
 from .foreign_key import ForeignKey
 from .schema_metadata import SchemaMetadata
-
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from simple_orm import get_column_name, reverse_column_name
+from .key_words import get_column_name, reverse_column_name
 
 class db_context:
-    _instance = None
-    _initialized = False
-
-    def __new__(cls, db_path, sync_schema=False):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-
+    
     def __init__(self, db_path, sync_schema=False):
-        if db_context._initialized:
-            return
-
         self._db_path = db_path
         self._sync_schema = sync_schema
 
@@ -40,8 +26,6 @@ class db_context:
         dir = os.path.dirname(self._db_path)
         if not os.path.exists(dir):
             os.makedirs(dir)
-
-        db_context._initialized = True
 
     async def initialize(self):
         if self._sync_schema:
